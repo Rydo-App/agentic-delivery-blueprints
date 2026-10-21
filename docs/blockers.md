@@ -22,6 +22,7 @@ The summary table maps a symptom to the pattern that explains it.
 | The application reads none of its own rows | [8. A role that cannot read its own rows](#8-a-database-role-that-cannot-read-its-own-rows) |
 | The user is signed in but every request is unauthenticated | [9. A session token that carries none of the claims the other side checks](#9-a-session-token-that-carries-none-of-the-claims-the-other-side-checks) |
 | Installing a dependency rewrites unrelated files | [10. A publish command that rewrites the tree](#10-a-publish-command-that-regenerates-the-lock-file-and-rewrites-the-tree) |
+| A gate passes a commit it never saw, or fails one it never touched | [11. A scan that covers a tree nobody gave it](#11-a-scan-that-covers-a-tree-nobody-gave-it) |
 
 ---
 
@@ -164,6 +165,20 @@ The summary table maps a symptom to the pattern that explains it.
 **Guard.** The publish job checks out the tagged commit into a fresh directory and asserts that the tracked files are unchanged after the build step. If the build step modified anything, the publish fails. The pipeline also compares the published package's lock file with the repository's and fails when they differ.
 
 **Lesson.** A command that writes to the tree must not be allowed to run where the tree matters. Build in a copy, and let the difference be an explicit, reviewable change.
+
+## 11. A scan that covers a tree nobody gave it
+
+**Symptom.** A command run to refresh one lock file also changed files nobody intended to change, and the pull request carried a hundred unrelated lines. The same shape appeared in the checks around it: a change that should have touched one file was described as clean, while a value that must not be published sat in the commit, and another change was refused for a file it never contained.
+
+**Cause.** The command regenerated from the tree it could reach rather than from the tree it was given, and the scanner it used matched paths differently from the way the runner writes them. The runner names the files of a commit relative to the top of the repository, while the scanner joined those names to the root it held, so every name became a path that was not there. A name that does not exist cannot be read, so it was dropped, and the scan came back clean over a commit it had never looked at. Where the command could reach another tree, that tree was scanned instead, so the verdict belonged to a tree nobody had asked about.
+
+**How it was found.** A pull request that should have changed one file carried a large diff, and the files in it were not the files the command was meant to touch. The list of files the command had been given was compared with the list of files it had actually written, and the two did not match. Running the same command over the tree it was given produced a different answer from running it over the tree it could reach, and the answer it gave for a commit it had not seen was the clean one.
+
+**Fix.** The command is given the tree it is meant to write, and the names the runner writes are read as the runner writes them and placed against that tree afterwards. A name that belongs to another tree is counted and named rather than folded into a path that does not exist, and a name the tree should hold but does not is reported and fails the run, because a check that could not read everything the change carries cannot call it clean.
+
+**Guard.** The rule that a lock file is regenerated deliberately, by one command, and never by hand. The check that the paths a scanner reports are the paths that exist, inside the tree the scan was given. The rule that a scan of part of a tree is refused rather than passed. The guide entry: the tree a tool is given and the tree it writes must be the same tree.
+
+**Lesson.** A command that writes more than it claims to is a supply-chain problem as much as a review problem. The diff will not save you. A gate that was asked about a tree it was never given fails the same way, and in the same silence: check which tree answered before you believe the answer.
 
 ---
 
