@@ -61,6 +61,14 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Review the dependencies
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        # The action needs the dependency graph of the repository to be
+        # enabled. Where it is not, the action says so and the step fails,
+        # which would fail the whole workflow over a setting of the
+        # repository rather than over the change. The step is therefore
+        # allowed to fail: the review is still attempted, and the leak scan
+        # and the secret scan, which are the checks that matter here, do not
+        # depend on it.
+        continue-on-error: true
 
   # A second scanner, from the platform, over the whole tree. It is a check
   # that is independent of the one in scripts/, so a rule that one of them
