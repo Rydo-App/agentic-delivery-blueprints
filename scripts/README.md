@@ -32,6 +32,46 @@ gate in a pipeline. The scanner also understands `--json` for machine use,
 `--quiet` to leave out the closing summary, `--staged` to look only at the
 files that are staged for the next commit, and `--help` for the full list.
 
+## The tree the scanner reads is the tree it was given
+
+> The tree a tool is given and the tree it writes must be the same tree.
+
+The scanner reads the repository that contains the directory the command was
+called from, or that directory itself when the call site is not inside a
+repository. It never reads the directory its own file happens to live in: a
+scanner that is copied somewhere else on one machine would otherwise scan that
+other place and answer a question nobody asked. `--root` names a tree
+explicitly, and a path given on the command line that does not lie inside the
+tree given is refused rather than followed.
+
+The tree the scanner reports is the same tree. Every path it prints is checked
+to exist inside the tree that was scanned, and a path that does not is a defect
+of the scanner rather than a finding, so the run fails instead of printing a
+reference to a file that is not there.
+
+## What the staged scan does
+
+The staged scan answers one question: does the next commit carry anything that
+must not be published? To answer it, the scanner needs the list of staged
+files, and it reads that list from the repository the commit belongs to. The
+paths in that list are written relative to the top of the repository, which is
+not always the tree that was given, so they are placed against the top of the
+repository first and against the tree given afterwards.
+
+Four rules follow from that, and the self-test proves each of them in a
+temporary repository:
+
+| Rule | What it stops |
+| --- | --- |
+| A staged scan covers the whole commit or it covers nothing, so a scan of part of a repository is refused | A commit that passes because only the convenient half of it was looked at |
+| A staged file the tree does not hold is named, and the run fails | A commit that carries content no scan was able to read |
+| A staged path that belongs to another tree is counted and named, never folded into a path that is not there | A finding that belongs to a file the commit does not carry |
+| A lock file is excluded, the way the whole-tree scan excludes it | A tree that answers a different question depending on the mode it was asked in |
+
+A lock file is regenerated deliberately, by the one command that owns it, and it
+is never edited by hand. A change to one is reviewed as a change of the locked
+versions, through the dependency tooling, and not as a change of the files.
+
 ## The self-test is what makes the scanner trustworthy
 
 `--self-test` runs every pattern against a small set of samples that are known
@@ -86,3 +126,8 @@ scanner.
 files that are staged for the commit and refuses the commit when the scanner
 finds something. It is idempotent, and it never overwrites a hook it did not
 write: it says so, and it offers to move the existing hook aside first.
+
+The hook changes to the top of the repository before it runs the scanner, so the
+tree the scan covers is the tree the commit belongs to. A hook that ran the
+scanner from anywhere else would be judging a commit by a tree it was never
+given.
