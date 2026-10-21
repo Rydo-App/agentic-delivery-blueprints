@@ -1,14 +1,14 @@
 # The accounts that sponsorship goes to.
 #
-# The handles below are placeholders. They are set by the maintainer of this
-# repository and they are replaced with the real handles before the repository
-# is published.
+# The handles below are the accounts of this project. A sponsorship buys
+# support time and nothing else: it does not buy a place in the order of the
+# backlog, it does not buy a private support channel, and it does not buy a
+# feature. The terms are written down in docs/sponsorship.md and they are the
+# same for every sponsor.
 #
-# A sponsorship buys support time and nothing else. It does not buy a place in
-# the order of the backlog, it does not buy a private support channel, and it
-# does not buy a feature. The terms are written down in
-# docs/sponsorship.md and they are the same for every sponsor.
+# The list of sponsors and the levels are published in SPONSORS.md, and so are
+# the amounts. A sponsorship never moves a security report in the queue.
 
-github: ["your-github-handle"]
-open_collective: "your-open-collective-handle"
-ko_fi: "your-ko-fi-handle"
+github: ["sonurust"]
+open_collective: "rydo-app"
+ko_fi: "rydo-app"
