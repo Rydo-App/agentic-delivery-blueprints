@@ -41,6 +41,7 @@ scanner in `scripts/` that enforces exactly that.
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How a change is made here, by a person or by an agent. |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | The behaviour expected of everyone taking part. |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability privately. |
+| [SPONSORS.md](SPONSORS.md) | Who sponsors the project, at which level, and since when. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, and when. |
 
 ## The two tools

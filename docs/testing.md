@@ -57,19 +57,17 @@ A contract test runs the component against a real dependency and checks the shap
 - The check is on the contract, not on the internals. Assert on the published wire shape.
 - Contract tests are cheap to run and are run on every change.
 
-Example of the assertion style:
+Example of the assertion style, written in the runner's own dialect:
 
 ```typescript
-const response = await client.requestReleaseToken({
+const { tokenType, expiresIn, accessToken } = await releaseToken({
   code: "example-authorisation-code",
   redirectUri: "https://app.example.invalid/auth/callback",
 });
 
-expect(response).toMatchObject({
-  access_token: expect.any(String),
-  token_type: "Bearer",
-  expires_in: expect.any(Number),
-});
+expect(tokenType).toBe("Bearer");
+expect(typeof accessToken).toBe("string");
+expect(typeof expiresIn).toBe("number");
 ```
 
 ## Layer 3: integration
@@ -131,12 +129,12 @@ The practical consequence is that the integration layer exists. If a test cannot
 
 ## Rule: a skipped test must say why
 
-A skipped test is a decision somebody made. The decision has to be visible at the point the skip happens, not in a ticket that nobody reads.
+A skipped test is a decision somebody made. The decision has to be visible at the point the skip happens, not in a ticket that nobody reads. The examples below use the runner's own skip marker.
 
 Good:
 
 ```typescript
-it.skip("sends the weekly digest", () => {
+skip("sends the weekly digest", () => {
   // Skipped because the digest provider has no sandbox account in this
   // environment. Tracked in TEST-482. Remove when the sandbox is provisioned.
 });
@@ -145,7 +143,7 @@ it.skip("sends the weekly digest", () => {
 Bad:
 
 ```typescript
-it.skip("sends the weekly digest", () => {});
+skip("sends the weekly digest", () => {});
 ```
 
 A skip without a reason is indistinguishable from a test someone could not make pass and hid. The rules that make a skip acceptable:

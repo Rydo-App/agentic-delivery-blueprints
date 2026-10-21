@@ -89,7 +89,7 @@ The repository ships an example file that contains every setting name with a pla
 cp .env.example .env.local
 ```
 
-The settings that need a real value for a local run are short.
+The settings a local run needs are listed below. Replace each `REPLACE_ME` with a value of your own; the values do not have to be secret, but they do have to be present.
 
 | Setting | Local value |
 | --- | --- |

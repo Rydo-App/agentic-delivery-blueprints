@@ -133,7 +133,7 @@ The order is:
 
 Every release is tagged on the commit that was built.
 
-```
+```text
 vMAJOR.MINOR.PATCH
 ```
 
