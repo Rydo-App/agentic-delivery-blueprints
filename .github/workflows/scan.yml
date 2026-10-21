@@ -47,37 +47,37 @@ jobs:
         run: node scripts/scan-leaks.mjs --json
         continue-on-error: true
 
-    # The dependency review belongs here, because it only works on a pull
-    # request. The action is pinned to the full commit SHA of the release it
-    # names, because a guessed SHA is worse than a missing job.
-    dependency-review:
-      name: Dependency review
-      if: github.event_name == 'pull_request'
-      runs-on: ubuntu-latest
-      permissions:
-        contents: read
-      steps:
-        - name: Check out the repository
-          uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-        - name: Review the dependencies
-          uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+  # The dependency review belongs here, because it only works on a pull
+  # request. The action is pinned to the full commit SHA of the release it
+  # names, because a guessed SHA is worse than a missing job.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Review the dependencies
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
 
-    # A second scanner, from the platform, over the whole tree. It is a check
-    # that is independent of the one in scripts/, so a rule that one of them
-    # misses may still be caught by the other.
-    secret-scan:
-      name: Secret scan
-      if: github.event_name != 'pull_request'
-      runs-on: ubuntu-latest
-      permissions:
-        contents: read
-      steps:
-        - name: Check out the repository
-          uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-        - name: Scan the tree for secrets
-          uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-          env:
-            GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+  # A second scanner, from the platform, over the whole tree. It is a check
+  # that is independent of the one in scripts/, so a rule that one of them
+  # misses may still be caught by the other.
+  secret-scan:
+    name: Secret scan
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Scan the tree for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
 
   summary:
     name: Summary
