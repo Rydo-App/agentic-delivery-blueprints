@@ -5,7 +5,26 @@ project follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- The blocker catalogue gained the entry on a scan that covers a tree nobody gave
+  it: the symptom, the cause, the fix, the guard and the lesson.
+- The test strategy states the rule for a dependency command and the tree it
+  writes: a lock file is regenerated deliberately, by one command, and never by
+  hand.
+- The scripts guide states the contract of the staged scan, and the four rules
+  that keep a scan of the tree given equal to a scan of the tree written.
+
+### Fixed
+
+- The leak scanner reads the tree the command was given rather than the tree
+  its own file happens to live in, and every path it reports is verified to
+  exist inside the tree it scanned.
+- The staged scan reads the list of staged files from the repository the commit
+  belongs to, the way the runner writes it, and refuses a scan of part of a
+  repository rather than passing a commit it only looked at half of.
+- A staged file that is not on the disk is named and fails the run, instead of
+  being dropped in silence while the commit carries it.
 
 ## [0.1.0] - 2026-10-21
 
