@@ -1,0 +1,27 @@
+# The owners of the sensitive paths of this repository.
+#
+# The handles below are placeholders. Replace every placeholder with a handle
+# that belongs to a maintainer of this repository before it is published, and
+# remove this comment once that has been done.
+#
+# The paths listed here are the sensitive ones: the tools that read the tree,
+# the workflows that run on every change, the forms that ask people for
+# information, and the rules themselves. A change to any of them decides what
+# every other agent and every other contributor is allowed to do, so it is read
+# by the owner of the path.
+#
+# The owner of a path has to be a maintainer. A sensitive path may not be owned
+# by nobody, and it may not be owned by somebody who is not a maintainer.
+
+# The tools that read the tree.
+/scripts/            @your-org/blueprint-maintainers
+
+# The workflows, the issue forms, the pull request template and the
+# configuration of the repository.
+/.github/            @your-org/blueprint-maintainers
+
+# The rules for people and for agents.
+/AGENTS.md           @your-org/blueprint-maintainers
+/CONTRIBUTING.md     @your-org/blueprint-maintainers
+/CODE_OF_CONDUCT.md  @your-org/blueprint-maintainers
+/SECURITY.md         @your-org/blueprint-maintainers

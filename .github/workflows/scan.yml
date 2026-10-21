@@ -1,0 +1,90 @@
+# The dependency and secret scan of this repository.
+#
+# It runs over the whole tree on a schedule, it can be started by hand from
+# the page of the workflow, and it runs on a pull request as well, because a
+# dependency review is only useful while the pull request is open.
+#
+# No secret is needed for this workflow, and it never writes to the
+# repository. It has read access and nothing else.
+#
+# Every action is pinned to a full commit SHA, with the version in a comment.
+
+name: dependency-and-secret-scan
+
+on:
+  schedule:
+    # Weekly, on Monday at 03:17 UTC.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  leak-scan:
+    name: Leak scan over the whole tree
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        with:
+          node-version: '20'
+      - name: Self-test the scanner
+        run: node scripts/scan-leaks.mjs --self-test
+      - name: Scan the whole tree for anything that must not be published
+        run: node scripts/scan-leaks.mjs
+      - name: Print the findings as JSON
+        if: always()
+        run: node scripts/scan-leaks.mjs --json
+        continue-on-error: true
+
+  # The dependency review belongs here, because it only works on a pull
+  # request. It is left out on purpose: the action it needs,
+  # actions/dependency-review-action, is not pinned in this repository yet,
+  # and a guessed commit SHA is worse than a missing job. A maintainer adds
+  # it with the real SHA of the release they trust:
+  #
+  #   dependency-review:
+  #     name: Dependency review
+  #     if: github.event_name == 'pull_request'
+  #     runs-on: ubuntu-latest
+  #     permissions:
+  #       contents: read
+  #     steps:
+  #       - name: Check out the repository
+  #         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+  #       - name: Review the dependencies
+  #         uses: actions/dependency-review-action@<full-commit-sha> # v4
+  #
+  # The same holds for gitleaks/gitleaks-action. The scanner in scripts/ does
+  # the job of finding secrets in the working tree today, and a second scanner
+  # is only worth adding once its SHA is pinned here.
+
+  summary:
+    name: Summary
+    runs-on: ubuntu-latest
+    needs: [leak-scan]
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Write the summary
+        run: |
+          {
+            echo "### Dependency and secret scan"
+            echo ""
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "| Leak scan over the whole tree | ${{ needs.leak-scan.result }} |"
+            echo ""
+            echo "The dependency review is not wired up yet. See the comment in the workflow file."
+          } >> "$GITHUB_STEP_SUMMARY"

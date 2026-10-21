@@ -1,0 +1,42 @@
+# Build output.
+dist/
+build/
+out/
+coverage/
+.next/
+.nuxt/
+*.tsbuildinfo
+
+# Dependency directories.
+node_modules/
+vendor/
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+
+# Local environment files. The example files are published, the real ones are
+# not, and neither is anything that holds a key.
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+secrets/
+credentials*
+
+# Editor and operating system noise.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+*.orig
+*.rej

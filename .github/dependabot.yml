@@ -1,0 +1,34 @@
+# The dependencies of this repository are the actions that the workflows use.
+#
+# A lock file is regenerated deliberately, by the tool that owns it, and it is
+# never edited by hand. A pull request that changes a lock file is read as a
+# change of the locked versions and not as a change of the files, so it is
+# reviewed as such.
+
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+    open-pull-requests-limit: 5
+
+  # The repository has no package of its own yet. When one is added, the
+  # ecosystem below is enabled with the same shape, and the lock file of that
+  # package is committed and regenerated, never written by hand.
+  # - package-ecosystem: "npm"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   commit-message:
+  #     prefix: "build"
+  #   labels:
+  #     - "dependencies"

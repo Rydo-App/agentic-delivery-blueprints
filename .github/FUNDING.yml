@@ -1,0 +1,14 @@
+# The accounts that sponsorship goes to.
+#
+# The handles below are placeholders. They are set by the maintainer of this
+# repository and they are replaced with the real handles before the repository
+# is published.
+#
+# A sponsorship buys support time and nothing else. It does not buy a place in
+# the order of the backlog, it does not buy a private support channel, and it
+# does not buy a feature. The terms are written down in
+# docs/sponsorship.md and they are the same for every sponsor.
+
+github: ["your-github-handle"]
+open_collective: "your-open-collective-handle"
+ko_fi: "your-ko-fi-handle"
