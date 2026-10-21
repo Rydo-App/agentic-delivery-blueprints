@@ -155,6 +155,21 @@ A skip without a reason is indistinguishable from a test someone could not make 
 
 Skipping a test because it is failing is not a use of this mechanism. Fix it or delete it.
 
+## Rule: a dependency command writes into the tree it was given
+
+> A command that installs or updates dependencies is given one tree, and it may only write into that tree.
+
+A dependency command is the one command in a delivery that touches every file at once. It reads a manifest, resolves it against a registry, and writes a lock file. The failure this rule prevents is the command resolving against the state of the world rather than the state of the tree, and writing the difference into files the change never meant to touch.
+
+**Rules.**
+
+- A lock file is regenerated deliberately, by the one command that owns it, and it is never edited by hand. A change to a lock file is read as a change of the locked versions, and reviewed as such, not as a change of the files.
+- The command is run with the flag that refuses to change the locked versions. When that flag is available, the lock file cannot move, and the tree the command writes is the tree it was given. The flag is not optional; it is the difference between an install and a negotiation with the registry.
+- After the command, the tree is compared with the tree it was given, with the client that owns the tree. A file that changed and was not meant to is put back before the work goes any further, and the cause is found rather than the symptom patched.
+- A command that writes into a tree it was not given is a defect of the command, not a mistake of the person who ran it. The fix belongs in the command, and it belongs there before the next agent runs it.
+
+The last rule is the one that is easiest to lose. A command that is handed the wrong tree, or that reaches a tree on its own, produces a result that looks exactly like a result. Nothing in the output says which tree it came from, so the difference has to be made visible by the tool itself: a check that holds the report to the tree that was scanned, and a check that refuses to pass what it could not read.
+
 ## Proving a failure is pre-existing
 
 When a test fails, the first question is not "what broke" but "did I break it". A failure that already existed on the base commit is not caused by the change under review, and treating it as if it were wastes the reviewer's attention and hides a real regression.

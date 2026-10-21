@@ -21,7 +21,9 @@
  *   node scripts/check-docs.mjs [options]
  *
  * Options:
- *   --root <dir>  Check another directory. Default: the repository root.
+ *   --root <dir>  Check another directory. Default: the repository that
+ *                 contains the directory the command was called from, or that
+ *                 directory itself when it is not inside a repository.
  *   --self-test   Check the checker against a small temporary fixture.
  *   --help        Print this help and exit.
  *
@@ -38,9 +40,18 @@
  *   of the repository rather than documents a reader has to find.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import process from 'node:process';
 
@@ -85,6 +96,42 @@ function toPosix(path) {
 function isSkippedDirectory(name) {
   if (SKIPPED_DIRECTORIES.has(name)) return true;
   return name.startsWith('.') && name !== '.github';
+}
+
+/** The real path of a directory, so two ways of naming the same place compare equal. */
+function realPathOf(path) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * Find the tree the command was given. That is the repository that contains the
+ * directory the command was called from, and never the directory the script
+ * itself happens to live in, for the same reason it is never that for the
+ * scanner: a checker copied somewhere else on one machine would quietly check
+ * that other place instead of the tree it was called for. When the call site
+ * is not inside a repository, the tree it was given is the directory it was
+ * called from.
+ */
+function findGivenTreeRoot(start) {
+  const calledFrom = resolve(start);
+  let current = calledFrom;
+  for (;;) {
+    let stats;
+    try {
+      stats = statSync(join(current, '.git'));
+    } catch {
+      stats = null;
+    }
+    // A linked worktree carries a pointer file instead of a git directory.
+    if (stats !== null && (stats.isDirectory() || stats.isFile())) return current;
+    const parent = dirname(current);
+    if (parent === current) return calledFrom;
+    current = parent;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -545,7 +592,7 @@ function main(argv) {
   }
   if (options.selfTest) return runSelfTest();
 
-  const root = resolve(options.root ?? resolve(fileURLToPath(import.meta.url), '..', '..'));
+  const root = realPathOf(resolve(options.root ?? findGivenTreeRoot(process.cwd())));
   if (!existsSync(root)) {
     process.stderr.write(`check-docs: the directory "${root}" does not exist\n`);
     return 2;

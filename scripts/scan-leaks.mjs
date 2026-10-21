@@ -7,12 +7,22 @@
  * nothing but the Node standard library, it runs the same way on Linux, macOS
  * and Windows, and it needs no installation step.
  *
+ * The tree the scanner reads is the tree the command was given. By default that
+ * is the repository that contains the directory the command was called from,
+ * and a scanner that lives somewhere else in the machine is never allowed to
+ * stand in for it. The tree it reports must be the same tree: every path a run
+ * prints is verified to exist inside the tree that was scanned.
+ *
  * Usage:
  *   node scripts/scan-leaks.mjs [options] [paths...]
  *
  * Options:
- *   --root <dir>  Scan another directory. Default: the repository root.
- *   --staged      Scan only the files that are staged for the next commit.
+ *   --root <dir>  Scan another directory. Default: the repository that contains
+ *                 the directory the command was called from, or that directory
+ *                 itself when it is not inside a repository.
+ *   --staged      Scan the files staged for the next commit. The staged list is
+ *                 read from the tree it belongs to, and a commit whose files
+ *                 cannot all be read fails instead of passing quietly.
  *   --json        Print the findings as JSON instead of text.
  *   --quiet       Print the findings but not the closing summary line.
  *   --self-test   Run the patterns against known good and bad samples.
@@ -20,7 +30,8 @@
  *
  * Exit codes:
  *   0  nothing was found, or the self-test passed.
- *   1  at least one finding, or the self-test failed.
+ *   1  at least one finding, a staged file that could not be read, or the
+ *      self-test failed.
  *   2  the command line could not be understood.
  *
  * Two rules of the house:
@@ -32,9 +43,20 @@
  *     story.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 
@@ -527,6 +549,61 @@ function isLockFile(name) {
   return LOCK_FILES.has(name.toLowerCase());
 }
 
+/**
+ * Find the tree the command was given. That is the repository that contains the
+ * directory the command was called from, and never the directory the script
+ * itself happens to live in: a scanner that is copied somewhere else on one
+ * machine would otherwise quietly scan that other place instead of the tree it
+ * was called for. When the call site is not inside a repository, the tree it
+ * was given is the directory it was called from.
+ */
+function findGivenTreeRoot(start) {
+  const calledFrom = resolve(start);
+  let current = calledFrom;
+  for (;;) {
+    let stats;
+    try {
+      stats = statSync(join(current, '.git'));
+    } catch {
+      stats = null;
+    }
+    // A linked worktree carries a pointer file instead of a git directory.
+    if (stats !== null && (stats.isDirectory() || stats.isFile())) return current;
+    const parent = dirname(current);
+    if (parent === current) return calledFrom;
+    current = parent;
+  }
+}
+
+/** The real path of a directory, so two ways of naming the same place compare equal. */
+function realPathOf(path) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** The top of the repository the runner writes about, or null when it is not usable. */
+function repositoryToplevel(root) {
+  try {
+    const output = execFileSync(
+      'git',
+      ['rev-parse', '--show-toplevel'],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return realPathOf(output.trim());
+  } catch {
+    return null;
+  }
+}
+
+/** True when a path sits inside the tree it was given, and not in its parent's tree. */
+function isInsideTree(path, root) {
+  const relation = relative(root, path);
+  return relation !== '' && !relation.startsWith('..');
+}
+
 /** List every file under a root that has to be looked at. */
 function collectFiles(root) {
   const files = [];
@@ -551,33 +628,87 @@ function collectFiles(root) {
   return files.sort();
 }
 
-/** List the files that are staged for the next commit, or null when git is not usable. */
+/**
+ * Read the staged list of the next commit, exactly the way the runner writes
+ * it. The paths in that list are relative to the top of the repository they
+ * belong to, which is not always the tree the command was given, so they are
+ * resolved against that top here. The caller places them against the tree it
+ * was given afterwards. Returns null when git could not do its part, so the
+ * caller can fail instead of looking at the wrong tree.
+ */
 function collectStagedFiles(root) {
+  const toplevel = repositoryToplevel(root);
+  if (toplevel === null) return null;
   try {
     const output = execFileSync(
       'git',
       ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z'],
-      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+      { cwd: toplevel, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     );
-    return output
+    const staged = output
       .split('\0')
       .filter((entry) => entry.length > 0)
-      .map((entry) => join(root, entry))
-      .filter((entry) => existsSync(entry));
+      .map((entry) => join(toplevel, entry));
+    return { toplevel, staged };
   } catch {
     return null;
   }
 }
 
-/** Turn a list of paths into the list of files that have to be read. */
+/**
+ * Place the staged list against the tree the command was given. A path the
+ * tree holds on disk goes to the scan. A path that belongs to the repository
+ * but not to the tree given is counted as outside, so it can be named instead
+ * of being folded into a path that does not exist. A path the tree should hold
+ * but does not is counted as unreadable, never dropped: the commit carries it
+ * whether the scan saw it or not. A lock file is excluded here exactly the way
+ * the whole-tree scan excludes it, so every mode of this scanner answers the
+ * same question about the tree.
+ */
+function resolveStagedFiles(root, staged) {
+  const files = [];
+  const outside = [];
+  const unreadable = [];
+  const lockFiles = [];
+  for (const path of staged) {
+    if (!isInsideTree(path, root)) {
+      outside.push(path);
+      continue;
+    }
+    if (!existsSync(path)) {
+      unreadable.push(path);
+      continue;
+    }
+    if (isLockFile(basename(path))) {
+      lockFiles.push(path);
+      continue;
+    }
+    files.push(path);
+  }
+  return { files, outside, unreadable, lockFiles };
+}
+
+/**
+ * Turn the paths the command was given into the list of files that have to be
+ * read. A path outside the tree given names a different tree and is refused. A
+ * path inside the tree given that cannot be read is reported rather than
+ * skipped, because a scan that quietly leaves a path out would let a finding
+ * pass by.
+ */
 function expandPaths(root, paths) {
   const files = [];
+  const problems = [];
   for (const path of paths) {
     const full = resolve(root, path);
+    if (!isInsideTree(full, root)) {
+      problems.push(`scan-leaks: the path "${toPosix(path)}" is not inside the tree given`);
+      continue;
+    }
     let stats;
     try {
       stats = statSync(full);
     } catch {
+      problems.push(`scan-leaks: the path "${toPosix(path)}" does not exist in the tree given`);
       continue;
     }
     if (stats.isFile()) {
@@ -586,7 +717,7 @@ function expandPaths(root, paths) {
       files.push(...collectFiles(full));
     }
   }
-  return files;
+  return { files, problems };
 }
 
 // ---------------------------------------------------------------------------
@@ -634,9 +765,70 @@ function scanFile(filePath, root) {
   return findings;
 }
 
+/**
+ * Hold the report to the tree the command was given: every path a run reports
+ * must exist inside the tree that was scanned. A path that does not exist
+ * there is not a finding, it is a defect of the scanner, and the run fails
+ * because of it instead of printing a reference to a file that is not there.
+ */
+function verifyReportedPaths(findings, root) {
+  const problems = [];
+  for (const finding of findings) {
+    const full = resolve(root, finding.file);
+    if (!isInsideTree(full, root) || !existsSync(full)) {
+      problems.push(
+        `scan-leaks: the scan reported "${finding.file}" which is not a path inside the tree given (${finding.rule})`,
+      );
+    }
+  }
+  return problems;
+}
+
 // ---------------------------------------------------------------------------
 // The self-test
 // ---------------------------------------------------------------------------
+
+/** True when the runner is usable here, whatever the directory is. */
+function gitIsUsable() {
+  try {
+    execFileSync('git', ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build a small repository with a staged set that exercises every rule of the
+ * staged scan at once: a finding inside a subdirectory, a finding outside it,
+ * a lock file that is excluded by rule, and a file staged for the commit whose
+ * copy is gone from the tree, which the scan has to name and never drop. The
+ * values in the fixture are addresses on the documentation ranges of the
+ * rules, never anything that looks like a credential.
+ */
+function buildStagedFixture(prefix) {
+  // The root is the real path of the fixture, so that the paths the runner
+  // writes and the paths the scan places compare equal on every platform.
+  const root = realPathOf(mkdtempSync(join(tmpdir(), prefix)));
+  execFileSync('git', ['init', '-q'], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] });
+  execFileSync('git', ['-C', root, 'config', 'user.email', 'placeholder@example.invalid'], {
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  execFileSync('git', ['-C', root, 'config', 'user.name', 'a placeholder'], {
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  mkdirSync(join(root, 'sub'), { recursive: true });
+  writeFileSync(join(root, 'base.md'), 'the base of the repository\n', 'utf8');
+  execFileSync('git', ['-C', root, 'add', 'base.md'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  execFileSync('git', ['-C', root, 'commit', '-q', '-m', 'the base'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  writeFileSync(join(root, 'sub', 'inside.md'), 'the agent connected to 10.20.30.40\n', 'utf8');
+  writeFileSync(join(root, 'outside.md'), 'the agent connected to 10.21.31.41\n', 'utf8');
+  writeFileSync(join(root, 'package-lock.json'), '{}\n', 'utf8');
+  writeFileSync(join(root, 'gone-from-tree.md'), 'the agent connected to 10.22.32.42\n', 'utf8');
+  execFileSync('git', ['-C', root, 'add', '.'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  rmSync(join(root, 'gone-from-tree.md'));
+  return root;
+}
 
 /** Run every rule against its own samples and report the rules that fail. */
 function runSelfTest() {
@@ -682,6 +874,76 @@ function runSelfTest() {
     failures.push(`the scanner reported its own source ${ownFindings.length} time(s)`);
   }
 
+  // The contract of the staged scan, proved in a temporary repository: the
+  // list the runner writes is placed against the tree the scan was given,
+  // nothing is dropped without a word, and every path the scan reports exists
+  // in the tree it was given. The contract is skipped honestly when git is not
+  // usable in the place the self-test runs.
+  let stagedContract = 'ran in a temporary repository';
+  if (!gitIsUsable()) {
+    stagedContract = 'skipped, git is not usable here';
+  } else {
+    const fixtureRoot = buildStagedFixture('scan-leaks-self-test-');
+    try {
+      const staged = collectStagedFiles(fixtureRoot);
+      if (staged === null) {
+        failures.push('the staged list could not be read from a working repository');
+      } else {
+        // The list belongs to the repository, and it is written the way the
+        // runner writes it: every path is relative to the top of it.
+        if (staged.toplevel !== fixtureRoot) {
+          failures.push('the staged list was not read from the repository it belongs to');
+        }
+        const names = staged.staged.map((path) => toPosix(relative(fixtureRoot, path)));
+        for (const expected of ['sub/inside.md', 'outside.md', 'package-lock.json', 'gone-from-tree.md']) {
+          if (!names.includes(expected)) failures.push(`the staged list is missing "${expected}"`);
+        }
+
+        // Given a part of the tree, the scan takes what belongs to it and
+        // counts the rest, instead of folding it into paths that are not there.
+        const subRoot = join(fixtureRoot, 'sub');
+        const partially = resolveStagedFiles(subRoot, staged.staged);
+        if (partially.files.length !== 1 || partially.files[0] !== join(subRoot, 'inside.md')) {
+          failures.push('the scan did not take exactly the staged files the tree it was given holds');
+        }
+        if (partially.outside.length !== 3) {
+          failures.push('staged paths that belong to another tree must be counted, not folded into paths that are not there');
+        }
+
+        // Given the whole tree, the path that is not on the disk is reported
+        // and the two held files are the only ones the scan reads.
+        const completely = resolveStagedFiles(fixtureRoot, staged.staged);
+        if (completely.unreadable.length !== 1 || !completely.unreadable[0].endsWith('gone-from-tree.md')) {
+          failures.push('a staged file that is not on the disk must be reported, not dropped');
+        }
+        if (completely.files.length !== 2 || completely.lockFiles.length !== 1) {
+          failures.push('the scan must take the files the tree holds and exclude the lock file, the way it does everywhere');
+        }
+
+        // The findings of the fixture report paths that exist, and a path that
+        // does not exist inside the tree given never passes as a finding.
+        const findings = [];
+        for (const file of completely.files) findings.push(...scanFile(file, fixtureRoot));
+        if (findings.length !== 2) {
+          failures.push('the scan did not find the findings of its own staged fixture');
+        }
+        if (verifyReportedPaths(findings, fixtureRoot).length > 0) {
+          failures.push('the scan reported a path that does not exist in the tree it was given');
+        }
+        if (
+          verifyReportedPaths(
+            [{ file: '../beyond.md', line: 1, rule: 'the fixture rule', excerpt: '' }],
+            fixtureRoot,
+          ).length !== 1
+        ) {
+          failures.push('a reported path outside the tree given must fail the check that holds the report to that tree');
+        }
+      }
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }
+
   if (failures.length > 0) {
     process.stdout.write('scan-leaks self-test: FAILED\n');
     for (const failure of failures) process.stdout.write(`  ${failure}\n`);
@@ -689,7 +951,7 @@ function runSelfTest() {
   }
 
   process.stdout.write(
-    `scan-leaks self-test: passed (${RULES.length} rules, ${RULES.reduce((sum, rule) => sum + rule.bad.length + rule.good.length, 0)} samples)\n`,
+    `scan-leaks self-test: passed (${RULES.length} rules, ${RULES.reduce((sum, rule) => sum + rule.bad.length + rule.good.length, 0)} samples; the staged contract ${stagedContract})\n`,
   );
   return 0;
 }
@@ -708,8 +970,12 @@ function printUsage() {
       '  node scripts/scan-leaks.mjs [options] [paths...]',
       '',
       'Options:',
-      '  --root <dir>  Scan another directory. Default: the repository root.',
-      '  --staged      Scan only the files that are staged for the next commit.',
+      '  --root <dir>  Scan another directory. Default: the repository that',
+      '                contains the directory the command was called from.',
+      '  --staged      Scan the files staged for the next commit. The staged list',
+      '                is read from the repository it belongs to, a path of the',
+      '                commit that cannot be read fails the scan, and a staged',
+      '                scan of part of the repository is refused.',
       '  --json        Print the findings as JSON instead of text.',
       '  --quiet       Print the findings but not the closing summary line.',
       '  --self-test   Run the patterns against known good and bad samples.',
@@ -717,8 +983,10 @@ function printUsage() {
       '',
       'Exit codes:',
       '  0  nothing was found, or the self-test passed.',
-      '  1  at least one finding, or the self-test failed.',
-      '  2  the command line could not be understood.',
+      '  1  at least one finding, a staged file that could not be read, or the',
+      '     self-test failed.',
+      '  2  the command line could not be understood, or a path was given that',
+      '     does not belong to the tree the scan was given.',
       '',
     ].join('\n'),
   );
@@ -771,7 +1039,11 @@ function main(argv) {
   }
   if (options.selfTest) return runSelfTest();
 
-  const root = resolve(options.root ?? resolve(fileURLToPath(import.meta.url), '..', '..'));
+  // The tree the command was given. It is derived from the place the command
+  // was called from, and an explicit root is the caller naming the tree it
+  // means. The tree the script itself happens to live in is never the answer:
+  // a scan of that tree would be a scan of a place nobody gave the command.
+  const root = realPathOf(resolve(options.root ?? findGivenTreeRoot(process.cwd())));
   if (!existsSync(root)) {
     process.stderr.write(`scan-leaks: the directory "${root}" does not exist\n`);
     return 2;
@@ -781,13 +1053,51 @@ function main(argv) {
   if (options.staged) {
     const staged = collectStagedFiles(root);
     if (staged === null) {
-      process.stderr.write('scan-leaks: git could not list the staged files, the whole tree is scanned\n');
-      files = collectFiles(root);
-    } else {
-      files = staged;
+      // A scan that cannot see the list the runner wrote cannot pass a commit.
+      // Falling back to the whole tree would answer a question about a different
+      // tree than the one the commit belongs to, so the run fails instead.
+      process.stderr.write('scan-leaks: git could not name the repository the staged list belongs to, nothing was scanned\n');
+      return 1;
     }
+    if (staged.toplevel !== root) {
+      // The tree a tool is given and the tree it writes must be the same tree.
+      // The runner writes about the whole repository, so a staged scan of part
+      // of it would leave the rest of the commit unchecked.
+      process.stderr.write(
+        `scan-leaks: the staged list belongs to "${toPosix(staged.toplevel)}" and the scan was given "${toPosix(root)}"\n`,
+      );
+      process.stderr.write('scan-leaks: a staged scan covers the whole commit or it covers nothing\n');
+      return 2;
+    }
+
+    const placed = resolveStagedFiles(root, staged.staged);
+    for (const path of placed.unreadable) {
+      process.stderr.write(
+        `scan-leaks: the staged file "${toPosix(relative(root, path))}" is not present in the tree, so what the commit carries was not read\n`,
+      );
+    }
+    if (placed.lockFiles.length > 0) {
+      process.stderr.write(
+        `scan-leaks: ${placed.lockFiles.length} locked dependency file(s) are excluded, the way the whole-tree scan excludes them; a lock file is regenerated by one deliberate command and is reviewed through the dependency tooling\n`,
+      );
+    }
+    // With the tree of the commit as the root, nothing on the staged list can sit
+    // outside the tree. A path that does is a defect of this scanner, and the
+    // run says so instead of pretending the commit was smaller than it is.
+    if (placed.outside.length > 0) {
+      for (const path of placed.outside) {
+        process.stderr.write(
+          `scan-leaks: the scanner could not place the staged path "${toPosix(path)}" inside the tree given\n`,
+        );
+      }
+      return 1;
+    }
+    files = placed.files;
   } else if (options.paths.length > 0) {
-    files = expandPaths(root, options.paths);
+    const expanded = expandPaths(root, options.paths);
+    for (const problem of expanded.problems) process.stderr.write(`${problem}\n`);
+    if (expanded.problems.length > 0) return 2;
+    files = expanded.files;
   } else {
     files = collectFiles(root);
   }
@@ -795,8 +1105,13 @@ function main(argv) {
   const findings = [];
   for (const file of files) findings.push(...scanFile(file, root));
 
+  // The last check is the one this tool owes its readers: a path the scan
+  // reports exists in the tree the scan was given, or the run fails.
+  const integrity = verifyReportedPaths(findings, root);
+  for (const problem of integrity) process.stderr.write(`${problem}\n`);
+
   report(findings, options);
-  return findings.length > 0 ? 1 : 0;
+  return findings.length > 0 || integrity.length > 0 ? 1 : 0;
 }
 
 process.exitCode = main(process.argv.slice(2));
