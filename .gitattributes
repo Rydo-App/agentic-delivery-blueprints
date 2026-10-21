@@ -1,0 +1,21 @@
+# Normalise every text file to LF in the repository and in the working tree.
+* text=auto eol=lf
+
+*.md text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.txt text eol=lf
+*.example text eol=lf
+
+# Binary files are never touched.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
