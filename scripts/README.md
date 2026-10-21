@@ -1,88 +1,95 @@
-# Scripts
+# The code
 
-Three small programs, written with nothing but the Node standard library. They
-run the same way on Linux, macOS and Windows, they need no installation step,
-and each of them can prove that it still works.
+Every tool here is a **guard**: it looks for a delivery failure before it costs
+anything, and it exits non-zero when it finds one. The failures it guards against
+are written up in [`../docs/blockers.md`](../docs/blockers.md), each with the
+symptom, the cause, how it was found, the fix, the guard and the lesson.
 
-| Script | What it does |
-| --- | --- |
-| [scan-leaks.mjs](scan-leaks.mjs) | Finds anything in the tree that must not be published. |
-| [check-docs.mjs](check-docs.mjs) | Checks the markdown: headings, links, whitespace, code fences, table of contents. |
-| [install-hooks.mjs](install-hooks.mjs) | Installs the managed pre-commit hook. |
+None of the tools needs a dependency, and none of them needs a network. They read
+a repository and report what they find.
+
+## The tools
+
+| Tool | What it guards against | The issue |
+| --- | --- | --- |
+| [`scan-leaks.mjs`](scan-leaks.mjs) | Private keys, cloud and API credentials, values that look like secrets, addresses, hostnames outside a neutral list, absolute paths — anything that must not become public. | — |
+| [`check-docs.mjs`](check-docs.mjs) | A document with no heading, a link that resolves to nothing, a code fence with no language, a table of contents that does not match the files. | — |
+| `merge-check.mjs` _(in progress)_ | A merge that silently dropped the files only the base had. | [#2](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/2) |
+| `check-ship-line.mjs` _(in progress)_ | Two branches that both claim to be the ship line, and a branch that cannot be released because it does not carry the release workflow. | [#3](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/3), [#4](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/4) |
+| [`check-migrations.mjs`](check-migrations.mjs) | A migration number used twice in two branches, a number whose order no longer means anything, a migration with no reversal. | [#6](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/6) |
+| `check-runners.mjs` _(in progress)_ | A workflow that names a runner which no longer exists, and a workflow that names a runner by a floating tag. | [#5](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/5) |
+| `check-tree-scope.mjs` _(in progress)_ | A command that rewrote more of the tree than it was asked to touch. | [#11](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/11) |
 
 ## Running them
 
+Each tool runs on its own, against the repository it is in:
+
 ```bash
-# find anything that must not be published
 node scripts/scan-leaks.mjs
-
-# check the documentation
 node scripts/check-docs.mjs
+node scripts/merge-check.mjs
+node scripts/check-ship-line.mjs
+node scripts/check-migrations.mjs
+node scripts/check-runners.mjs
+node scripts/check-tree-scope.mjs
+```
 
-# prove that the tools themselves still work
+Every tool accepts `--help`, and most accept `--repo <dir>` to point at another
+repository, `--json` to print machine-readable output, and `--quiet` to print the
+findings without the closing summary.
+
+## The exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Nothing was found, or the self-test passed. |
+| 1 | At least one finding, or a self-test failed. |
+| 2 | The command line could not be understood. |
+
+## The self-tests
+
+Every tool carries a `--self-test` that proves its rules work: it builds a
+throwaway repository with the defect the tool is meant to catch, shows that the
+tool finds it, and shows that the tool stays quiet on a healthy one. The
+throwaway repositories are removed afterwards.
+
+```bash
 node scripts/scan-leaks.mjs --self-test
 node scripts/check-docs.mjs --self-test
+```
 
-# install the pre-commit hook
+To run the self-test of every tool at once:
+
+```bash
+npm test
+```
+
+That runner is [`run-all-tests.mjs`](run-all-tests.mjs). It picks the tools up
+by their file name, so a new tool joins the suite as soon as it is written with
+a `--self-test` mode.
+
+## The pre-commit hook
+
+The leak scan can run before every commit:
+
+```bash
 node scripts/install-hooks.mjs
 ```
 
-Both checkers exit non-zero when they find something, so they can be used as a
-gate in a pipeline. The scanner also understands `--json` for machine use,
-`--quiet` to leave out the closing summary, `--staged` to look only at the
-files that are staged for the next commit, and `--help` for the full list.
+The installer is idempotent, refuses to overwrite a hook it did not write, and
+can back the old one up instead. The hook scans the staged files and refuses the
+commit when it finds something. Bypassing it with `--no-verify` is possible and
+is visible in the history.
 
-## The self-test is what makes the scanner trustworthy
+## The rules the code follows
 
-`--self-test` runs every pattern against a small set of samples that are known
-to be good and samples that are known to be bad. The run fails when a pattern
-does not catch its bad sample, when a pattern fires on a good sample, when a
-good sample of one pattern trips another pattern, or when a pattern prints a
-value in full. A scanner that cannot show its own work is a scanner nobody
-should trust, so the self-test runs in continuous integration on every push
-and every pull request.
-
-## The scanner does not report itself
-
-This is a documented exception, and it is the only one.
-
-The scanner has to look for words such as `api_key`, `secret`, `password` and
-`token` followed by something that looks like a value. Those words, and the
-patterns that match them, live in the source of the scanner itself. If the
-scanner read its own source the way it reads every other file, it would report
-itself on every run, and the finding would be a line of regular expression
-rather than a leak.
-
-So the scanner skips its own source file, and it skips a copy of itself that
-is found under another name. Nothing else is skipped: every other file in the
-tree, including this one, is read exactly like any other file.
-
-The other tools have the same shape of exception. `check-docs.mjs` reads this
-file and finds exactly one top level heading, no tab character, no trailing
-whitespace, a language tag on every code block and one link that resolves.
-
-## What the scanner looks for
-
-| Pattern | What it is |
-| --- | --- |
-| `private-key-block`, `pem-header` | A block that holds key material. |
-| `cloud-access-key-id`, `aws-account-id`, `arn-with-account-id` | A cloud identifier. |
-| `bearer-token`, `json-web-token`, `github-token`, `slack-token`, `google-api-key`, `stripe-secret-key` | A token of a known shape. |
-| `secret-assignment` | A setting whose value looks like a real value rather than a placeholder. |
-| `email-address` | An address on a domain that is not accepted. |
-| `ipv4-address` | An address outside the loopback and the documentation ranges. |
-| `absolute-path` | A path that belongs to one machine. |
-| `unknown-hostname` | A host name outside the accepted list of public domains. |
-
-A finding is printed as one line, with the file, the line number, the name of
-the pattern and a redacted excerpt. The excerpt shows at most the first four
-characters and the last two characters of a value, and nothing at all for key
-material. The secret is never printed in full, not even in the output of the
-scanner.
-
-## The hook
-
-`install-hooks.mjs` writes a pre-commit hook that runs the scanner over the
-files that are staged for the commit and refuses the commit when the scanner
-finds something. It is idempotent, and it never overwrites a hook it did not
-write: it says so, and it offers to move the existing hook aside first.
+- **No dependency.** The Node standard library and `git`, and nothing else. A
+  guard that needs a package to be installed is a guard that will not be run.
+- **Read-only.** A tool never writes to the repository, never stages, never
+  stashes, never checks out and never merges. It is safe to point at a
+  repository you did not create.
+- **No credential, no identifier.** The output names a path, a kind and a
+  count. It never prints the content of a file, and it never prints a value
+  that could be one.
+- **Every rule is proven.** A rule without a sample that catches it is a rule
+  nobody can trust.

@@ -44,28 +44,47 @@ scanner in `scripts/` that enforces exactly that.
 | [SPONSORS.md](SPONSORS.md) | Who sponsors the project, at which level, and since when. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, and when. |
 
-## The two tools
+## The code
+
+This is a code repository first: the guards that prevent the delivery failures
+are the substance, and the guides explain them. Seven tools, no dependencies, no
+network, each one read-only and each one with a self-test that proves its rules
+work.
+
+| Tool | What it guards against |
+| --- | --- |
+| `scripts/scan-leaks.mjs` | Anything that must not become public: private keys, cloud and API credentials, values that look like secrets, addresses, hostnames outside a neutral list, absolute paths. |
+| `scripts/check-docs.mjs` | A document with no heading, a link that resolves to nothing, a code fence with no language, a table of contents that does not match the files. |
+| `scripts/merge-check.mjs` | A merge that silently dropped the files only the base had. |
+| `scripts/check-ship-line.mjs` | Two branches that both claim to be the ship line, and a branch that cannot be released because it does not carry the release workflow. |
+| `scripts/check-migrations.mjs` | A migration number used twice, a numbering whose order no longer means anything, a migration with no reversal. |
+| `scripts/check-runners.mjs` | A workflow that names a runner which no longer exists, and a workflow that names one by a floating tag. |
+| `scripts/check-tree-scope.mjs` | A command that rewrote more of the tree than it was asked to touch. |
 
 ```bash
-# find anything that must not be published
-node scripts/scan-leaks.mjs
-
-# check the documentation: headings, links, code fences, the table of contents
-node scripts/check-docs.mjs
-
-# prove the tools themselves still work
-node scripts/scan-leaks.mjs --self-test
-node scripts/check-docs.mjs --self-test
-
-# install the pre-commit hook, so the scanner runs before every commit
-node scripts/install-hooks.mjs
+npm test                                  # the self-test of every tool
+npm run check                            # the scan, the documentation check and the suite
+node scripts/scan-leaks.mjs              # what must not be published
+node scripts/check-docs.mjs              # the documentation
+node scripts/install-hooks.mjs           # the pre-commit hook
 ```
 
-The scanner looks for private keys, cloud and API credentials, values that look like
-secrets, addresses, hostnames outside a small neutral list, absolute paths and anything
-else that must not become public. It prints a redacted excerpt, never the secret itself.
-Both tools run in continuous integration on every push and pull request, and the
-scanner also runs on a schedule.
+Every tool takes `--help`, and most take `--repo <dir>` to point at another
+repository, `--json` for machine-readable output and `--quiet` to print the
+findings without the summary. The index of the code, with what each guard
+protects against, is in [`scripts/README.md`](scripts/README.md).
+
+The tools run in continuous integration on every push and pull request, and the
+leak scan also runs on a schedule and as a pre-commit hook.
+
+## The two qualities
+
+The scanner looks for private keys, cloud and API credentials, values that look
+like secrets, addresses, hostnames outside a small neutral list, and absolute
+paths. It prints a redacted excerpt, never the secret itself. The documentation
+checker verifies the documentation: one top-level heading per file, links that
+resolve, code fences with a language, no tabs, and a table of contents that
+matches what exists.
 
 ## Why an open reference
 

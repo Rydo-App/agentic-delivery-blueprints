@@ -1,0 +1,45 @@
+{
+  "name": "agentic-delivery-blueprints",
+  "version": "0.1.0",
+  "description": "An open reference for teams that let AI agents deliver software across machines and repositories: the guards that prevent the delivery failures, and the guides that explain them.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "scan-leaks": "./scripts/scan-leaks.mjs",
+    "check-docs": "./scripts/check-docs.mjs"
+  },
+  "scripts": {
+    "test": "node scripts/run-all-tests.mjs",
+    "lint": "node scripts/check-docs.mjs",
+    "scan": "node scripts/scan-leaks.mjs",
+    "check": "npm run scan && npm run lint && npm test"
+  },
+  "files": [
+    "scripts/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ai-agents",
+    "multi-agent",
+    "continuous-delivery",
+    "devops",
+    "platform-engineering",
+    "release-management"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rydo-App/agentic-delivery-blueprints.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Rydo-App/agentic-delivery-blueprints/issues"
+  },
+  "homepage": "https://github.com/Rydo-App/agentic-delivery-blueprints#readme",
+  "private": false,
+  "dependencies": {},
+  "devDependencies": {}
+}

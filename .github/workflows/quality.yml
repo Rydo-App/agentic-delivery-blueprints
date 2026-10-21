@@ -1,9 +1,8 @@
 # The quality gate of this repository.
 #
 # It runs on every push to the default branch and on every pull request, and
-# it does four things: it proves that the leak scanner still works, it proves
-# that the documentation checker still works, it runs the leak scan over the
-# tree, and it checks the documentation.
+# it proves that every tool still works, it runs the leak scan over the tree,
+# and it checks the documentation.
 #
 # Every action is pinned to a full commit SHA, with the version in a comment.
 # A pinned SHA cannot be moved, so nothing changes here without a pull request
@@ -61,10 +60,25 @@ jobs:
       - name: Check the documentation
         run: node scripts/check-docs.mjs
 
+  self-tests:
+    name: Self-test of every tool
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        with:
+          node-version: '20'
+      - name: Run the self-test of every tool
+        run: node scripts/run-all-tests.mjs
+
   summary:
     name: Summary
     runs-on: ubuntu-latest
-    needs: [leak-scan, documentation]
+    needs: [leak-scan, documentation, self-tests]
     if: always()
     permissions:
       contents: read
@@ -78,6 +92,7 @@ jobs:
             echo "| --- | --- |"
             echo "| Leak scan | ${{ needs.leak-scan.result }} |"
             echo "| Documentation check | ${{ needs.documentation.result }} |"
+            echo "| Self-test of every tool | ${{ needs.self-tests.result }} |"
             echo ""
             echo "The self-tests run before the real check, so a broken tool never reports a clean tree."
           } >> "$GITHUB_STEP_SUMMARY"
