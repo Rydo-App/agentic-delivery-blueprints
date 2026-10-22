@@ -33,6 +33,7 @@ scanner in `scripts/` that enforces exactly that.
 | [docs/deployment.md](docs/deployment.md) | How a release moves from preparation to staging to production, and how it is rolled back. |
 | [docs/agent-coordination.md](docs/agent-coordination.md) | How several agents share one body of work without colliding. |
 | [docs/blockers.md](docs/blockers.md) | The delivery blockers worth knowing in advance, each with its cause, fix and guard. |
+| [docs/credential-handoff.md](docs/credential-handoff.md) | How a credential moves from the machine that holds it to the machine that needs it, without its value ever being shown. |
 | [docs/sponsorship.md](docs/sponsorship.md) | What sponsoring this project buys, and what it deliberately does not. |
 
 | File | What it is |
