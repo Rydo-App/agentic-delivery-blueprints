@@ -61,6 +61,7 @@ work.
 | `scripts/check-migrations.mjs` | A migration number used twice, a numbering whose order no longer means anything, a migration with no reversal. |
 | `scripts/check-runners.mjs` | A workflow that names a runner which no longer exists, and a workflow that names one by a floating tag. |
 | `scripts/check-tree-scope.mjs` | A command that rewrote more of the tree than it was asked to touch. |
+| `scripts/handoff.mjs` | A credential that leaves a machine as a value, in a message, in a log or in a commit. |
 
 ```bash
 npm test                                  # the self-test of every tool

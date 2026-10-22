@@ -1,0 +1,4 @@
+REPLACE_ME
+This file is a sample of the format of a credential file.
+It holds no credential and no value of any kind.
+A real credential is written by the holder and never by a tool.

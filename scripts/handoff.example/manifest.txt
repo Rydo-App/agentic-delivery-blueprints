@@ -1,0 +1,14 @@
+protocol: credential-handoff/1
+bundle: example-bundle
+written: 2026-10-22T02:10:00Z
+written_by: placeholder-machine
+destroy_after: 2026-10-29T02:10:00Z
+
+credential: example-token
+  file: example-token.txt
+  kind: connector-token
+  digest: sha256:052f8f23e3ccb5a7467eb3e7b73a9ff9d4708d27beb8790e962f3098f6900ee4
+  prefix: REPL
+  for: placeholder-machine
+  reason: this sample shows the format of the manifest and holds no credential
+  destroy: when the task is done, or on the date above

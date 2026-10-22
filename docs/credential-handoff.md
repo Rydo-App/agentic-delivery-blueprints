@@ -185,7 +185,36 @@ For the common case, the whole protocol is four steps:
    is needed, and never prints it.
 4. The receiver destroys its copy and says so; the manifest is the record.
 
-## The check that enforces it
+## The tool that enforces it
+
+The protocol is not a document nobody runs. `scripts/handoff.mjs` is the tool that
+carries it out, and it has four subcommands:
+
+| Command | What it does |
+| --- | --- |
+| `handoff write` | Writes the credential files and the manifest of a bundle, with the permissions that let only the owner read them. |
+| `handoff verify` | Checks a bundle against its own manifest: the digest of every file, the permissions, the machine it is meant for, and the files it does not describe. |
+| `handoff digest` | Prints the kind, the SHA-256 digest and a prefix of four characters of a file, and nothing else. |
+| `handoff destroy` | Removes the credential files and leaves the record behind: the name, the kind, the digest, the machine, the reason and the date, and no value. |
+
+```bash
+node scripts/handoff.mjs write   --bundle <dir> --machine <name> --credential "<spec>"
+node scripts/handoff.mjs verify  --bundle <dir> --for <machine>
+node scripts/handoff.mjs digest  --kind <kind> <file>
+node scripts/handoff.mjs destroy --bundle <dir> --record <file>
+```
+
+The tool has no code path that prints a value: the digest and the four-character
+prefix are the only things it derives from the content of a file, and the check that a
+manifest holds no value compares the content in memory without printing it. A prefix
+longer than four characters is refused, a bundle inside a repository is refused unless
+the caller says they know what they are doing, and nothing is read or removed outside
+the bundle directory.
+
+Its self-test builds a throwaway bundle for each of twenty cases and shows that the
+tool finds the fault in every one of them.
+
+## The check that enforces the rest
 
 The scanner in this repository finds the shapes that must not be published: private
 keys, cloud and API credentials, values that look like secrets, addresses, hostnames

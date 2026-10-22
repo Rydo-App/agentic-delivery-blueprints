@@ -19,6 +19,7 @@ a repository and report what they find.
 | [`check-migrations.mjs`](check-migrations.mjs) | A migration number used twice in two branches, a number whose order no longer means anything, a migration with no reversal. | [#6](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/6) |
 | [`check-runners.mjs`](check-runners.mjs) | A workflow that names a runner which no longer exists, and a workflow that names a runner by a floating tag. | [#5](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/5) |
 | [`check-tree-scope.mjs`](check-tree-scope.mjs) | A command that rewrote more of the tree than it was asked to touch. | [#11](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/11) |
+| [`handoff.mjs`](handoff.mjs) | A credential that leaves a machine as a value, in a message, in a log or in a commit. | — |
 
 ## Running them
 
