@@ -61,7 +61,7 @@
  * separator.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -236,7 +236,6 @@ function readMigrationName(fileName) {
     number: Number(match[1]),
     numberText: match[1],
     stem,
-    name: stem.replace(/^\d+[_.-]?/, ''),
   };
 }
 
@@ -245,7 +244,7 @@ function readMigrationName(fileName) {
  * pattern matches its name or the path it has under the directory of the
  * migrations.
  */
-function readBranchMigrations(repo, branch, options) {
+function readBranchMigrations(branch, options) {
   const upPattern = globToRegExp(options.pattern);
   const downPattern = globToRegExp(options.downPattern);
   const files = [];
@@ -270,7 +269,6 @@ function readBranchMigrations(repo, branch, options) {
       number: identity.number,
       numberText: identity.numberText,
       stem: identity.stem,
-      name: identity.name,
     });
   }
 
@@ -386,14 +384,15 @@ function checkBranch(branch, findings) {
   // A number that is not the lowest of the numbers that follow it. The runner
   // applies the files in the order of their names, so a sequence that does
   // not ascend in that order means the numbers no longer say what order the
-  // migrations run in.
+  // migrations run in. A number that is followed by the same number is a
+  // duplicate and is reported above, not an ordering fault.
   const ordered = sortByFileName(branch.files.filter((file) => file.direction === 'up'));
   for (let index = 0; index < ordered.length; index += 1) {
     const file = ordered[index];
     const following = ordered.slice(index + 1).map((item) => item.number);
     if (following.length === 0) continue;
     const lowest = Math.min(...following);
-    if (file.number < lowest) continue;
+    if (file.number <= lowest) continue;
     findings.push({
       kind: 'out-of-order',
       path: file.path,
@@ -438,12 +437,16 @@ function checkCollisions(branches, findings) {
     // carry, and not two migrations that collide.
     const paths = [...new Set(entries.map((entry) => entry.path))];
     if (paths.length < 2) continue;
+    const names = [...new Set(entries.map((entry) => entry.branch))];
+    // One branch with two migrations that carry one number is a duplicate
+    // inside the branch, and it is reported above.
+    if (names.length < 2) continue;
     findings.push({
       kind: 'cross-branch-collision',
       path: entries[0].path,
       number,
       numberText: entries[0].numberText,
-      branches: [...new Set(entries.map((entry) => entry.branch))],
+      branches: names,
       message:
         `the number ${number} is used by more than one migration: ` +
         entries.map((entry) => `${entry.branch} (${entry.path})`).join(', '),
@@ -481,7 +484,7 @@ function checkRepository(repo, options) {
   const read = readBranches(repo, options);
   if (read.error) return read;
 
-  const branches = read.map((branch) => readBranchMigrations(repo, branch, options));
+  const branches = read.map((branch) => readBranchMigrations(branch, options));
   const findings = [];
   for (const branch of branches) checkBranch(branch, findings);
   checkCollisions(branches, findings);
@@ -493,12 +496,11 @@ function checkRepository(repo, options) {
 // ---------------------------------------------------------------------------
 
 /** The environment that keeps a throwaway repository free of the machine. */
-function fixtureEnvironment(root) {
-  const empty = join(root, 'gitconfig-empty');
+function fixtureEnvironment(configPath) {
   return {
     ...process.env,
-    GIT_CONFIG_GLOBAL: empty,
-    GIT_CONFIG_SYSTEM: empty,
+    GIT_CONFIG_GLOBAL: configPath,
+    GIT_CONFIG_SYSTEM: configPath,
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_TERMINAL_PROMPT: '0',
     GIT_ASKPASS: 'true',
@@ -512,11 +514,11 @@ function fixtureEnvironment(root) {
 }
 
 /** Run a git command in a throwaway repository. */
-function fixtureGit(root, args) {
+function fixtureGit(repo, args, env) {
   return execFileSync('git', args, {
-    cwd: root,
+    cwd: repo,
     encoding: 'utf8',
-    env: fixtureEnvironment(root),
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
@@ -535,25 +537,54 @@ function rmFixture(root, name) {
   rmSync(join(root, name), { force: true });
 }
 
+/** Copy a file and make it writable again, so that git can replace it later. */
+function copyFile(from, to) {
+  copyFileSync(from, to);
+  chmodSync(to, 0o644);
+}
+
+/**
+ * Copy a directory tree. Every case of the self-test gets a copy of the same
+ * repository, which is much faster than building a repository from nothing
+ * for every case.
+ */
+function copyTree(source, target) {
+  mkdirSync(target, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = join(source, entry.name);
+    const to = join(target, entry.name);
+    if (entry.isDirectory()) copyTree(from, to);
+    else if (entry.isFile()) copyFile(from, to);
+  }
+}
+
 /** A migration file has a body, but the checker never reads it. */
 function migration(body) {
   return `-- ${body}\n`;
 }
 
-/** Build a throwaway repository and return its path. */
-function createFixtureRepository() {
+/**
+ * Build the repository the cases start from. The repository has a branch
+ * called main and no commit yet, so that every case can write the migrations
+ * it needs on top of it.
+ */
+function createFixtureBase() {
   const root = mkdtempSync(join(tmpdir(), 'check-migrations-self-test-'));
-  writeFileSync(join(root, 'gitconfig-empty'), '', 'utf8');
-  fixtureGit(root, ['init', '--quiet', '.']);
-  fixtureGit(root, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
-  return root;
+  const repo = join(root, 'repository');
+  const config = join(root, 'gitconfig-empty');
+  mkdirSync(repo, { recursive: true });
+  writeFileSync(config, '', 'utf8');
+  const env = fixtureEnvironment(config);
+  fixtureGit(repo, ['init', '--quiet', '.'], env);
+  fixtureGit(repo, ['symbolic-ref', 'HEAD', 'refs/heads/main'], env);
+  return { root, repo, env };
 }
 
 /** Write the migrations of a branch and commit them. */
-function commitMigrations(root, message, files) {
+function commitMigrations(root, message, files, env) {
   for (const [name, content] of files) writeFixture(root, name, content);
-  fixtureGit(root, ['add', '--all']);
-  fixtureGit(root, ['commit', '--quiet', '--message', message]);
+  fixtureGit(root, ['add', '--all'], env);
+  fixtureGit(root, ['commit', '--quiet', '--message', message], env);
 }
 
 /** The cases of the self-test: each one builds a repository and looks for a finding. */
@@ -562,21 +593,23 @@ function selfTestCases() {
     {
       name: 'two branches that reuse a number',
       must: 'the number used by both branches must be reported',
-      build(root) {
+      // The branches of the repository are found on their own in this case.
+      branches: null,
+      build(root, env) {
         commitMigrations(root, 'base', [
           ['migrations/000001_base.up.sql', migration('base')],
           ['migrations/000001_base.down.sql', migration('base')],
           ['migrations/000002_first.up.sql', migration('first')],
           ['migrations/000002_first.down.sql', migration('first')],
-        ]);
-        fixtureGit(root, ['checkout', '--quiet', '-b', 'feature-a']);
+        ], env);
+        fixtureGit(root, ['checkout', '--quiet', '-b', 'feature-a'], env);
         rmFixture(root, 'migrations/000002_first.up.sql');
         rmFixture(root, 'migrations/000002_first.down.sql');
         commitMigrations(root, 'feature', [
           ['migrations/000002_second.up.sql', migration('second')],
           ['migrations/000002_second.down.sql', migration('second')],
-        ]);
-        fixtureGit(root, ['checkout', '--quiet', 'main']);
+        ], env);
+        fixtureGit(root, ['checkout', '--quiet', 'main'], env);
       },
       expect: (findings) => {
         const collision = findings.find((finding) => finding.kind === 'cross-branch-collision' && finding.number === 2);
@@ -588,92 +621,111 @@ function selfTestCases() {
     {
       name: 'one branch with two files that carry one number',
       must: 'the number used twice in one branch must be reported',
-      build(root) {
+      build(root, env) {
         commitMigrations(root, 'base', [
           ['migrations/000001_base.up.sql', migration('base')],
           ['migrations/000001_base.down.sql', migration('base')],
           ['migrations/000002_one.up.sql', migration('one')],
           ['migrations/000002_two.up.sql', migration('two')],
           ['migrations/000002_one.down.sql', migration('one')],
-        ]);
+        ], env);
       },
-      expect: (findings) => findings.some((finding) => finding.kind === 'duplicate-in-branch' && finding.number === 2),
+      expect: (findings) => {
+        const duplicate = findings.find((finding) => finding.kind === 'duplicate-in-branch' && finding.number === 2);
+        if (!duplicate) return false;
+        // A number that is used twice in one branch is not a collision
+        // between two branches.
+        return !findings.some((finding) => finding.kind === 'cross-branch-collision');
+      },
     },
     {
       name: 'a migration without a down file',
       must: 'the missing down file must be reported',
-      build(root) {
+      build(root, env) {
         commitMigrations(root, 'base', [
           ['migrations/000001_base.up.sql', migration('base')],
           ['migrations/000001_base.down.sql', migration('base')],
           ['migrations/000002_add.up.sql', migration('add')],
-        ]);
+        ], env);
       },
       expect: (findings) => findings.some((finding) => finding.kind === 'missing-down' && finding.number === 2),
     },
     {
       name: 'a migration without an up file',
       must: 'the missing up file must be reported',
-      build(root) {
+      build(root, env) {
         commitMigrations(root, 'base', [
           ['migrations/000001_base.up.sql', migration('base')],
           ['migrations/000001_base.down.sql', migration('base')],
           ['migrations/000002_add.down.sql', migration('add')],
-        ]);
+        ], env);
       },
       expect: (findings) => findings.some((finding) => finding.kind === 'missing-up' && finding.number === 2),
     },
     {
       name: 'a gap in the numbering',
       must: 'the gap must be reported',
-      build(root) {
+      build(root, env) {
         commitMigrations(root, 'base', [
           ['migrations/000001_base.up.sql', migration('base')],
           ['migrations/000001_base.down.sql', migration('base')],
           ['migrations/000004_add.up.sql', migration('add')],
           ['migrations/000004_add.down.sql', migration('add')],
-        ]);
+        ], env);
       },
       expect: (findings) => findings.some((finding) => finding.kind === 'gap'),
     },
     {
       name: 'numbers that do not ascend in the order the runner applies the files',
       must: 'the out of order number must be reported',
-      build(root) {
+      build(root, env) {
         commitMigrations(root, 'base', [
           ['migrations/9_nine.up.sql', migration('nine')],
           ['migrations/9_nine.down.sql', migration('nine')],
           ['migrations/10_ten.up.sql', migration('ten')],
           ['migrations/10_ten.down.sql', migration('ten')],
-        ]);
+        ], env);
       },
       expect: (findings) => findings.some((finding) => finding.kind === 'out-of-order'),
     },
     {
       name: 'a migration file that carries no number',
       must: 'the file without a number must be reported',
-      build(root) {
+      build(root, env) {
         commitMigrations(root, 'base', [
           ['migrations/000001_base.up.sql', migration('base')],
           ['migrations/000001_base.down.sql', migration('base')],
           ['migrations/alpha_beta.up.sql', migration('alpha')],
           ['migrations/alpha_beta.down.sql', migration('alpha')],
-        ]);
+        ], env);
       },
       expect: (findings) => findings.some((finding) => finding.kind === 'unnumbered'),
     },
     {
       name: 'a healthy set of migrations',
       must: 'nothing must be reported',
-      build(root) {
+      build(root, env) {
         commitMigrations(root, 'base', [
           ['migrations/000001_base.up.sql', migration('base')],
           ['migrations/000001_base.down.sql', migration('base')],
           ['migrations/000002_add.up.sql', migration('add')],
           ['migrations/000002_add.down.sql', migration('add')],
-        ]);
+        ], env);
       },
       expect: (findings) => findings.length === 0,
+    },
+    {
+      name: 'a directory of migrations that is not a repository',
+      must: 'the number used twice must be reported',
+      plain: true,
+      branches: null,
+      build(root) {
+        writeFixture(root, 'migrations/000001_base.up.sql', migration('base'));
+        writeFixture(root, 'migrations/000001_base.down.sql', migration('base'));
+        writeFixture(root, 'migrations/000002_one.up.sql', migration('one'));
+        writeFixture(root, 'migrations/000002_two.up.sql', migration('two'));
+      },
+      expect: (findings) => findings.some((finding) => finding.kind === 'duplicate-in-branch' && finding.number === 2),
     },
   ];
 }
@@ -682,29 +734,45 @@ function selfTestCases() {
 function runSelfTest() {
   const failures = [];
   const cases = selfTestCases();
+  const base = createFixtureBase();
 
-  for (const testCase of cases) {
-    const root = createFixtureRepository();
-    try {
-      testCase.build(root);
-      const result = checkRepository(root, {
-        directory: DEFAULT_DIRECTORY,
-        pattern: DEFAULT_PATTERN,
-        downPattern: deriveDownPattern(DEFAULT_PATTERN),
-        branches: null,
-      });
-      if (result.error) {
-        failures.push(`${testCase.name}: ${result.error}`);
-        continue;
+  try {
+    for (const testCase of cases) {
+      const root = join(base.root, 'case');
+      if (!existsSync(base.repo)) {
+        failures.push('the temporary repository was removed while the self-test was running');
+        break;
       }
-      if (!testCase.expect(result.findings)) {
-        failures.push(`${testCase.name}: ${testCase.must}`);
-      }
-    } catch (error) {
-      failures.push(`${testCase.name}: the repository could not be built (${error.message})`);
-    } finally {
       rmSync(root, { recursive: true, force: true });
+      try {
+        if (testCase.plain) {
+          // A directory without a history is checked on its own.
+          mkdirSync(root, { recursive: true });
+        } else {
+          copyTree(base.repo, root);
+        }
+        testCase.build(root, base.env);
+        const result = checkRepository(root, {
+          directory: DEFAULT_DIRECTORY,
+          pattern: DEFAULT_PATTERN,
+          downPattern: deriveDownPattern(DEFAULT_PATTERN),
+          // The branches of a case are named, except for the case that
+          // checks that the branches of a repository are found on their own.
+          branches: testCase.branches === undefined ? ['main'] : testCase.branches,
+        });
+        if (result.error) {
+          failures.push(`${testCase.name}: ${result.error}`);
+          continue;
+        }
+        if (!testCase.expect(result.findings)) {
+          failures.push(`${testCase.name}: ${testCase.must}`);
+        }
+      } catch (error) {
+        failures.push(`${testCase.name}: the repository could not be built (${error.message})`);
+      }
     }
+  } finally {
+    rmSync(base.root, { recursive: true, force: true });
   }
 
   if (failures.length > 0) {

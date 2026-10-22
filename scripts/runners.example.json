@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "default": "build-pool",
+  "labels": {
+    "ubuntu-latest": {
+      "machine": "hosted-runner-01",
+      "kind": "hosted"
+    },
+    "build-pool": {
+      "machine": "machine-01",
+      "kind": "group"
+    },
+    "build-pool:2024.06.1": {
+      "machine": "machine-01",
+      "kind": "pinned"
+    },
+    "test-pool": {
+      "machine": "machine-02",
+      "kind": "group"
+    },
+    "test-pool:2024.06.1": {
+      "machine": "machine-02",
+      "kind": "pinned"
+    },
+    "release-pool": {
+      "machine": "machine-03",
+      "kind": "group"
+    }
+  }
+}

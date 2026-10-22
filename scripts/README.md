@@ -14,11 +14,11 @@ a repository and report what they find.
 | --- | --- | --- |
 | [`scan-leaks.mjs`](scan-leaks.mjs) | Private keys, cloud and API credentials, values that look like secrets, addresses, hostnames outside a neutral list, absolute paths — anything that must not become public. | — |
 | [`check-docs.mjs`](check-docs.mjs) | A document with no heading, a link that resolves to nothing, a code fence with no language, a table of contents that does not match the files. | — |
-| `merge-check.mjs` _(in progress)_ | A merge that silently dropped the files only the base had. | [#2](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/2) |
-| `check-ship-line.mjs` _(in progress)_ | Two branches that both claim to be the ship line, and a branch that cannot be released because it does not carry the release workflow. | [#3](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/3), [#4](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/4) |
+| [`merge-check.mjs`](merge-check.mjs) | A merge that silently dropped the files only the base had. | [#2](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/2) |
+| [`check-ship-line.mjs`](check-ship-line.mjs) | Two branches that both claim to be the ship line, and a branch that cannot be released because it does not carry the release workflow. | [#3](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/3), [#4](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/4) |
 | [`check-migrations.mjs`](check-migrations.mjs) | A migration number used twice in two branches, a number whose order no longer means anything, a migration with no reversal. | [#6](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/6) |
-| `check-runners.mjs` _(in progress)_ | A workflow that names a runner which no longer exists, and a workflow that names a runner by a floating tag. | [#5](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/5) |
-| `check-tree-scope.mjs` _(in progress)_ | A command that rewrote more of the tree than it was asked to touch. | [#11](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/11) |
+| [`check-runners.mjs`](check-runners.mjs) | A workflow that names a runner which no longer exists, and a workflow that names a runner by a floating tag. | [#5](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/5) |
+| [`check-tree-scope.mjs`](check-tree-scope.mjs) | A command that rewrote more of the tree than it was asked to touch. | [#11](https://github.com/Rydo-App/agentic-delivery-blueprints/issues/11) |
 
 ## Running them
 
